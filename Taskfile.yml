@@ -1,0 +1,30 @@
+# Taskfile for pdm project
+
+# https://taskfile.dev
+
+version: "3"
+
+vars:
+  GREETING: Hello, World!
+  DIR_ENV: .venv
+
+dotenv: [".env"]
+
+tasks:
+  default:
+    cmds:
+      - echo "{{.GREETING}}"
+    silent: true
+
+  install:
+    - |
+      if [ ! -d ".venv" ]; then
+        python -m venv .venv --system-site-packages
+      fi
+    - source ./.venv/bin/activate
+    - pdm install
+
+  start:
+    cmds:
+      - docker compose up -d
+      - python src/interface.py

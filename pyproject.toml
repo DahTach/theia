@@ -1,0 +1,30 @@
+[project]
+name = "theia"
+version = "0.1.0"
+description = "Computer Vision Object Detection Automations"
+authors = [
+    {name = "DahTach", email = "francesco.tacinelli@gmail.com"},
+]
+dependencies = [
+    "torch>=2.3.0",
+    "torchvision>=0.18.0",
+    "autodistill>=0.1.26",
+    "autodistill-grounded-sam>=0.1.2",
+    "autodistill-grounding-dino>=0.1.4",
+    "gradio>=4.31.5",
+    "roboflow>=1.1.29",
+]
+requires-python = ">=3.10"
+readme = "README.md"
+license = {text = "MIT"}
+
+[build-system]
+requires = ["pdm-backend"]
+build-backend = "pdm.backend"
+
+
+[tool.pdm]
+distribution = true
+
+[project.scripts]
+label = "theia.main:main"
