@@ -6,6 +6,7 @@ import numpy.typing as npt
 from autodistill.detection import CaptionOntology
 from autodistill.utils import plot
 
+
 models = {
     # SUPPORTED MODELS
     "GroundedSAM": "autodistill_grounded_sam",  # Amazing results
@@ -70,11 +71,12 @@ class Model:
         return self.model.label(folder, extension)
 
     def draw(self, image, results) -> npt.NDArray:
+        print(f"RESULTS: {results}")
         return plot(
             image=image,
             classes=self.model.ontology.classes(),
             # slice the last result from the list to fix autodistill bug
-            detections=results[-1],
+            detections=results,
             raw=True,
         )
 
