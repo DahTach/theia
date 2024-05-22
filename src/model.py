@@ -71,7 +71,6 @@ class Model:
         return self.model.label(folder, extension)
 
     def draw(self, image, results) -> npt.NDArray:
-        print(f"RESULTS: {results}")
         return plot(
             image=image,
             classes=self.model.ontology.classes(),

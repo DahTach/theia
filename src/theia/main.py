@@ -2,7 +2,9 @@ import argparse
 import os
 
 parser = argparse.ArgumentParser()
-parser.add_argument("-m", "--model", type=str, help="Model Name")
+parser.add_argument(
+    "-m", "--model", type=str, default="GroundingDINO", help="Model Name"
+)
 parser.add_argument("-i", "--images", type=str, help="Image Folder Path")
 
 
