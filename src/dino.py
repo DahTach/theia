@@ -5,12 +5,8 @@ from typing import List, Tuple
 import cv2 as cv
 import groundingdino.datasets.transforms as T
 import numpy as np
-import progressbar
-import supervision as sv
 import torch
 import torchvision
-from autodistill.detection import CaptionOntology
-from autodistill_grounding_dino.helpers import combine_detections, load_grounding_dino
 from caption import captions
 from groundingdino.models import build_model
 from groundingdino.util.inference import Model
@@ -20,7 +16,7 @@ from groundingdino.util.utils import get_phrases_from_posmap
 from PIL import Image
 from torchvision.ops import box_convert
 from tqdm import tqdm
-import warnings
+import utils
 
 
 # import argparse
@@ -39,43 +35,9 @@ import warnings
 # )
 
 
-def get_captions(captions):
-    """Inverts a dictionary with list values.
-
-    Args:
-        d: The dictionary to invert.
-
-    Returns:
-        The inverted dictionary.
-    """
-
-    inverted_dict = {}
-    for key, value in captions.items():
-        for item in value:
-            inverted_dict.setdefault(item, key)  # Set default value for repeated values
-    return inverted_dict
-
-
-pbar = None
-
-
-def show_progress(block_num, block_size, total_size):
-    global pbar
-    if pbar is None:
-        pbar = progressbar.ProgressBar(maxval=total_size)
-        pbar.start()
-
-    downloaded = block_num * block_size
-    if downloaded < total_size:
-        pbar.update(downloaded)
-    else:
-        pbar.finish()
-        pbar = None
-
-
 class Dino:
-    def __init__(self, ontology, box_threshold=0.35, text_threshold=0.25):
-        self.device = "cpu"
+    def __init__(self, ontology, device, box_threshold=0.35, text_threshold=0.25):
+        self.device = self.get_device() if not device else device
         self.ontology = ontology
         self.box_threshold = box_threshold
         self.text_threshold = text_threshold
@@ -87,10 +49,14 @@ class Dino:
 
     def get_device(self):
         if torch.cuda.is_available():
+            print("using cuda")
             return "cuda"
         if torch.backends.mps.is_available() and torch.backends.mps.is_built():
-            return "mps"
-        return "cpu"
+            print("using cpu because mps is not fully supported yet")
+            return "cpu"
+        else:
+            print("using cpu")
+            return "cpu"
 
     def load(self):
         try:
@@ -108,11 +74,11 @@ class Dino:
 
             if not os.path.exists(self.checkpoint):
                 url = "https://github.com/IDEA-Research/GroundingDINO/releases/download/v0.1.0-alpha/groundingdino_swint_ogc.pth"
-                urllib.request.urlretrieve(url, self.checkpoint, show_progress)
+                urllib.request.urlretrieve(url, self.checkpoint, utils.show_progress)
 
             if not os.path.exists(self.config):
                 url = "https://raw.githubusercontent.com/roboflow/GroundingDINO/main/groundingdino/config/GroundingDINO_SwinT_OGC.py"
-                urllib.request.urlretrieve(url, self.config, show_progress)
+                urllib.request.urlretrieve(url, self.config, utils.show_progress)
 
             self.model = DinoModel(
                 model_config_path=self.config,
@@ -147,16 +113,15 @@ class Dino:
         box_threshold: float = 0.25,
         text_threshold: float = 0.25,
     ):
-        # TODO: pass the prompt to the drawing function
         # TODO: draw the results without nms
         detections = [torch.tensor([]), torch.tensor([]), []]
         for cls in (cbar := tqdm(captions.keys())):
             cbar.set_description(f"Processing class {cls}")
             for prompt in (pbar := tqdm(captions[cls])):
                 pbar.set_description(f"Processing prompt {prompt}")
-                boxes, confidences, class_ids = self.model.predict_with_prompts(
+                boxes, confidences, class_ids = self.model.predict_with_prompt(
                     image=image,
-                    classes=[prompt],
+                    prompt=prompt,
                     box_threshold=box_threshold,
                     text_threshold=text_threshold,
                 )
@@ -165,7 +130,34 @@ class Dino:
                 detections[1] = torch.cat((detections[1], confidences), dim=0)
 
                 # extend class_ids with the same class for each box
-                detections[2].extend([cls] * len(class_ids))
+                detections[2].extend([prompt] * len(class_ids))
+
+        filtered_detections = self.fast_nms(detections)
+
+        return filtered_detections
+
+    def dino_batch_predict(
+        self,
+        image: np.ndarray,
+        box_threshold: float = 0.25,
+        text_threshold: float = 0.25,
+    ):
+        detections = [torch.tensor([]), torch.tensor([]), []]
+        for cls, prompts in (cbar := tqdm(captions.items())):
+            cbar.set_description(f"Processing class {cls}")
+            print(f"prompts: {prompts}")
+            boxes, confidences, class_ids = self.model.predict_with_prompts(
+                image=image,
+                prompts=prompts,
+                box_threshold=box_threshold,
+                text_threshold=text_threshold,
+            )
+
+            detections[0] = torch.cat((detections[0], boxes), dim=0)
+            detections[1] = torch.cat((detections[1], confidences), dim=0)
+
+            # extend class_ids with the same class for each box
+            detections[2].extend([cls] * len(class_ids))
 
         filtered_detections = self.fast_nms(detections)
 
@@ -240,8 +232,49 @@ class Dino:
 
         # change color based on class
         colors = {
-            "water pack": (0, 255, 0),
-            "can pack": (0, 0, 255),
+            "water": (0, 255, 0),
+            "cans": (0, 0, 255),
+            "box": (255, 0, 0),
+            "keg": (255, 255, 0),
+            "bottle": (0, 255, 255),
+        }
+        boxes = detections[0]
+        confidences = detections[1]
+        prompt_ids = detections[2]
+
+        class_ids = []
+        for prompt_id in prompt_ids:
+            for cls, prompts in captions.items():
+                if prompt_id in prompts:
+                    class_ids.append(cls)
+
+        for i, (box, confidence, prompt_id) in enumerate(
+            zip(boxes, confidences, prompt_ids)
+        ):
+            class_id = class_ids[i]
+            color = colors.get(class_id, (0, 0, 0))
+            x1, y1, x2, y2 = box
+            x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
+            cv.rectangle(image, (x1, y1), (x2, y2), color, 2)
+            cv.putText(
+                image,
+                f"{prompt_id}: {confidence:.2f}",
+                (x1, y1 - 10),
+                cv.FONT_HERSHEY_SIMPLEX,
+                0.9,
+                color,
+                2,
+            )
+
+        return image
+
+    def draw_batch(self, image: np.ndarray, detections):
+        # Draw boxes on the image
+
+        # change color based on class
+        colors = {
+            "water": (0, 255, 0),
+            "cans": (0, 0, 255),
             "box": (255, 0, 0),
             "keg": (255, 255, 0),
             "bottle": (0, 255, 255),
@@ -249,6 +282,7 @@ class Dino:
         boxes = detections[0]
         confidences = detections[1]
         class_ids = detections[2]
+
         for box, confidence, class_id in zip(boxes, confidences, class_ids):
             color = colors.get(class_id, (0, 0, 0))
             x1, y1, x2, y2 = box
@@ -292,11 +326,11 @@ class DinoModel(Model):
     def predict_with_prompts(
         self,
         image: np.ndarray,
-        classes: List[str],
+        prompts: List[str],
         box_threshold: float,
         text_threshold: float,
     ):
-        caption = ". ".join(classes)
+        caption = ". ".join(prompts)
         processed_image = self.preprocess_image(image_bgr=image).to(self.device)
         boxes, logits, phrases = self.predict(
             model=self.model,
@@ -307,7 +341,32 @@ class DinoModel(Model):
             device=self.device,
         )
         source_h, source_w, _ = image.shape
-        class_id = self.phrases2classes(phrases=phrases, classes=classes)
+        class_id = self.phrases2classes(phrases=phrases, classes=prompts)
+        confidence = torch.tensor(logits)
+
+        boxes = boxes * torch.Tensor([source_w, source_h, source_w, source_h])
+        boxes = box_convert(boxes=boxes, in_fmt="cxcywh", out_fmt="xyxy")
+        return boxes, confidence, class_id
+
+    def predict_with_prompt(
+        self,
+        image: np.ndarray,
+        prompt: str,
+        box_threshold: float,
+        text_threshold: float,
+    ):
+        # caption = ". ".join(classes)
+        processed_image = self.preprocess_image(image_bgr=image).to(self.device)
+        boxes, logits, phrases = self.predict(
+            model=self.model,
+            image=processed_image,
+            caption=prompt,
+            box_threshold=box_threshold,
+            text_threshold=text_threshold,
+            device=self.device,
+        )
+        source_h, source_w, _ = image.shape
+        class_id = self.phrases2classes(phrases=phrases, classes=[prompt])
         confidence = torch.tensor(logits)
 
         boxes = boxes * torch.Tensor([source_w, source_h, source_w, source_h])

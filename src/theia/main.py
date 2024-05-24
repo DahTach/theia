@@ -7,8 +7,6 @@ parser = argparse.ArgumentParser()
 parser.add_argument(
     "-m", "--model", type=str, default="GroundingDINO", help="Model Name"
 )
-parser.add_argument("-i", "--images", type=str, help="Image Folder Path")
-parser.add_argument("-m", "--model", type=str, help="Model Name")
 parser.add_argument(
     "-i",
     "--images",
@@ -21,6 +19,10 @@ parser.add_argument(
     type=str,
     help="Single Image",
 )
+parser.add_argument(
+    "-b", "--batch", action="store_true", default=False, help="Batch Mode"
+)
+parser.add_argument("--device", type=str, help="Device to use")
 
 
 def get_image_files(path):
@@ -58,20 +60,30 @@ def main():
     utils.filter_warnings()
 
     try:
-        model = Dino(ontology=CaptionOntology(utils.get_captions(captions)))
+        model = Dino(
+            ontology=CaptionOntology(utils.get_captions(captions)), device=args.device
+        )
     except Exception as e:
         raise e
 
     if args.image:
         image = cv.imread(args.image)
-        results = model.dino_predict(image)
-        image = model.draw(image, results)
+        if args.batch:
+            results = model.dino_batch_predict(image)
+            image = model.draw_batch(image, results)
+        else:
+            results = model.dino_predict(image)
+            image = model.draw(image, results)
         utils.show(image)
     else:
         for image in get_image_files(args.images):
             image = cv.imread(image)
-            results = model.dino_predict(image)
-            image = model.draw(image, results)
+            if args.batch:
+                results = model.dino_batch_predict(image)
+                image = model.draw_batch(image, results)
+            else:
+                results = model.dino_predict(image)
+                image = model.draw(image, results)
             utils.show(image)
 
 
