@@ -1,10 +1,14 @@
 import importlib
+import torch
 
 import cv2 as cv
 import numpy.typing as npt
 
 from autodistill.detection import CaptionOntology
 from autodistill.utils import plot
+from autodistill_grounding_dino import GroundingDINO
+
+from supervision import Detections
 
 
 models = {

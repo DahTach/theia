@@ -5,7 +5,7 @@
 groups = ["default"]
 strategy = ["cross_platform", "inherit_metadata"]
 lock_version = "4.4.1"
-content_hash = "sha256:460ad992ad2c64a8796b5ec53b887c0711b4339ed8da2264876d6d831fe30138"
+content_hash = "sha256:8e3ea0fcaa4d1c7a5c24a42993bb760b78d22e0a74ba07a0c05552c5a105aee0"
 
 [[package]]
 name = "addict"
@@ -1323,6 +1323,15 @@ groups = ["default"]
 files = [
     {file = "platformdirs-4.2.2-py3-none-any.whl", hash = "sha256:2d7a1657e36a80ea911db832a8a6ece5ee53d8de21edd5cc5879af6530b1bfee"},
     {file = "platformdirs-4.2.2.tar.gz", hash = "sha256:38b7b51f512eed9e84a22788b4bce1de17c0adb134d6becb09836e37d8654cd3"},
+]
+
+[[package]]
+name = "progressbar"
+version = "2.5"
+summary = "Text progress bar library for Python."
+groups = ["default"]
+files = [
+    {file = "progressbar-2.5.tar.gz", hash = "sha256:5d81cb529da2e223b53962afd6c8ca0f05c6670e40309a7219eacc36af9b6c63"},
 ]
 
 [[package]]
