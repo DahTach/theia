@@ -17,6 +17,9 @@ from PIL import Image
 from torchvision.ops import box_convert
 from tqdm import tqdm
 import utils
+import supervision as sv
+from autodistill.helpers import load_image
+from autodistill_grounding_dino.helpers import combine_detections, load_grounding_dino
 
 
 # import argparse
@@ -107,45 +110,70 @@ class Dino:
                 class_ids.append(None)
         return np.array(class_ids)
 
-    def dino_predict(
+    def base_predict(self, input: str, progress=None) -> sv.Detections:
+        image = load_image(input, return_format="cv2")
+
+        detections_list = []
+
+        progress = tqdm(self.ontology.prompts())
+        for prompt in progress:
+            detections = self.model.predict_with_classes(
+                image=image,
+                classes=[prompt],
+                box_threshold=self.box_threshold,
+                text_threshold=self.text_threshold,
+            )
+
+            detections_list.append(detections)
+
+            progress.update(1)
+
+        detections = combine_detections(
+            detections_list, overwrite_class_ids=range(len(detections_list))
+        )
+
+        return detections
+
+    def nms_predict(
         self,
         image: np.ndarray,
         box_threshold: float = 0.25,
         text_threshold: float = 0.25,
+        progress=None,
     ):
         # TODO: draw the results without nms
         detections = [torch.tensor([]), torch.tensor([]), []]
-        for cls in (cbar := tqdm(captions.keys())):
-            cbar.set_description(f"Processing class {cls}")
-            for prompt in (pbar := tqdm(captions[cls])):
-                pbar.set_description(f"Processing prompt {prompt}")
-                boxes, confidences, class_ids = self.model.predict_with_prompt(
-                    image=image,
-                    prompt=prompt,
-                    box_threshold=box_threshold,
-                    text_threshold=text_threshold,
-                )
+        progress = tqdm([prompt for prompts in captions.values() for prompt in prompts])
+        for prompt in progress:
+            boxes, confidences, class_ids = self.model.predict_with_prompt(
+                image=image,
+                prompt=prompt,
+                box_threshold=box_threshold,
+                text_threshold=text_threshold,
+            )
 
-                detections[0] = torch.cat((detections[0], boxes), dim=0)
-                detections[1] = torch.cat((detections[1], confidences), dim=0)
+            detections[0] = torch.cat((detections[0], boxes), dim=0)
+            detections[1] = torch.cat((detections[1], confidences), dim=0)
 
-                # extend class_ids with the same class for each box
-                detections[2].extend([prompt] * len(class_ids))
+            # extend class_ids with the same class for each box
+            detections[2].extend([prompt] * len(class_ids))
+
+            progress.update(1)
 
         filtered_detections = self.fast_nms(detections)
 
         return filtered_detections
 
-    def dino_batch_predict(
+    def batch_predict(
         self,
         image: np.ndarray,
         box_threshold: float = 0.25,
         text_threshold: float = 0.25,
+        progress=None,
     ):
         detections = [torch.tensor([]), torch.tensor([]), []]
-        for cls, prompts in (cbar := tqdm(captions.items())):
-            cbar.set_description(f"Processing class {cls}")
-            print(f"prompts: {prompts}")
+        progress = tqdm(captions.items())
+        for cls, prompts in progress:
             boxes, confidences, class_ids = self.model.predict_with_prompts(
                 image=image,
                 prompts=prompts,
@@ -158,6 +186,8 @@ class Dino:
 
             # extend class_ids with the same class for each box
             detections[2].extend([cls] * len(class_ids))
+
+            progress.update(1)
 
         filtered_detections = self.fast_nms(detections)
 
@@ -227,7 +257,53 @@ class Dino:
 
         return filtered_detections
 
-    def draw(self, image: np.ndarray, detections):
+    def draw_base(self, image: np.ndarray, detections):
+        return self.plot(
+            image=image,
+            classes=self.ontology.classes(),
+            # slice the last result from the list to fix autodistill bug
+            detections=detections,
+            raw=True,
+        )
+
+    def plot(self, image: np.ndarray, detections, classes: List[str], raw=False):
+        """
+        Plot bounding boxes or segmentation masks on an image.
+
+        Args:
+            image: The image to plot on
+            detections: The detections to plot
+            classes: The classes to plot
+            raw: Whether to return the raw image or plot it interactively
+
+        Returns:
+            The raw image (np.ndarray) if raw=True, otherwise None (image is plotted interactively
+        """
+        # TODO: When we have a classification annotator
+        # in supervision, we can add it here
+        if detections.mask is not None:
+            annotator = sv.MaskAnnotator()
+        else:
+            annotator = sv.BoxAnnotator()
+
+        label_annotator = sv.LabelAnnotator()
+
+        labels = [
+            f"{classes[class_id]} {confidence:0.2f}"
+            for _, _, confidence, class_id, _, _ in detections
+        ]
+
+        annotated_frame = annotator.annotate(scene=image.copy(), detections=detections)
+        annotated_frame = label_annotator.annotate(
+            scene=annotated_frame, labels=labels, detections=detections
+        )
+
+        if raw:
+            return annotated_frame
+
+        sv.plot_image(annotated_frame, size=(8, 8))
+
+    def draw_nms(self, image: np.ndarray, detections):
         # Draw boxes on the image
 
         # change color based on class

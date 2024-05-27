@@ -77,7 +77,7 @@ class GradioApp:
                                 with gr.Column(scale=3):
                                     cls = gr.Dropdown(
                                         label="Class",
-                                        choices=captions.keys(),
+                                        choices=list(captions.keys()),
                                         value=elem1,
                                     )
 

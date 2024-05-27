@@ -69,21 +69,21 @@ def main():
     if args.image:
         image = cv.imread(args.image)
         if args.batch:
-            results = model.dino_batch_predict(image)
+            results = model.batch_predict(image)
             image = model.draw_batch(image, results)
         else:
-            results = model.dino_predict(image)
-            image = model.draw(image, results)
+            results = model.nms_predict(image)
+            image = model.draw_nms(image, results)
         utils.show(image)
     else:
         for image in get_image_files(args.images):
             image = cv.imread(image)
             if args.batch:
-                results = model.dino_batch_predict(image)
+                results = model.batch_predict(image)
                 image = model.draw_batch(image, results)
             else:
-                results = model.dino_predict(image)
-                image = model.draw(image, results)
+                results = model.nms_predict(image)
+                image = model.draw_nms(image, results)
             utils.show(image)
 
 
