@@ -2,6 +2,8 @@ import argparse
 import os
 import cv2 as cv
 import warnings
+import pathlib
+from tqdm import tqdm
 
 parser = argparse.ArgumentParser()
 parser.add_argument(
@@ -23,6 +25,9 @@ parser.add_argument(
     "-b", "--batch", action="store_true", default=False, help="Batch Mode"
 )
 parser.add_argument("--device", type=str, help="Device to use")
+parser.add_argument(
+    "-s", "--save", action="store_true", default=False, help="Save Drawn Images"
+)
 
 
 def get_image_files(path):
@@ -66,6 +71,16 @@ def main():
     except Exception as e:
         raise e
 
+    if args.save:
+        if args.image:
+            path = pathlib.Path(args.image)
+            results_dir = path.parent.parent / f"{path.parent.name}_results"
+            results_dir.mkdir(exist_ok=True)
+        else:
+            path = pathlib.Path(args.images)
+            results_dir = path.parent / f"{path.name}_results"
+            results_dir.mkdir(exist_ok=True)
+
     if args.image:
         image = cv.imread(args.image)
         if args.batch:
@@ -74,17 +89,24 @@ def main():
         else:
             results = model.nms_predict(image)
             image = model.draw_nms(image, results)
-        utils.show(image)
+        if args.save:
+            utils.save_image(image, args.image)
+        else:
+            utils.show(image)
     else:
-        for image in get_image_files(args.images):
-            image = cv.imread(image)
+        for image_path in tqdm(get_image_files(args.images)):
+            image = cv.imread(image_path)
             if args.batch:
                 results = model.batch_predict(image)
                 image = model.draw_batch(image, results)
             else:
                 results = model.nms_predict(image)
                 image = model.draw_nms(image, results)
-            utils.show(image)
+            if args.save:
+                utils.save_image(image, image_path)
+            else:
+                utils.show(image)
+            break
 
 
 if __name__ == "__main__":

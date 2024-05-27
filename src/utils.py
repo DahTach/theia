@@ -3,6 +3,7 @@ import progressbar
 import warnings
 import cv2 as cv
 import numpy as np
+import pathlib
 
 
 def get_captions(captions):
@@ -76,3 +77,11 @@ def filter_warnings():
     warnings.filterwarnings("ignore", message="torch.meshgrid")
     warnings.filterwarnings("ignore", message="torch.broadcast_tensors")
     # warnings.filterwarnings("ignore", message="Warning: CUDA not available. GroundingDINO will run very slowly.")
+
+
+def save_image(image, path_name):
+    # get pathlib path
+    path = pathlib.Path(path_name)
+    result_dir = path.parent.parent / f"{path.parent.name}_results"
+    result_path = result_dir / path.name
+    cv.imwrite(str(result_path.resolve()), image)
