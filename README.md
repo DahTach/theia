@@ -20,8 +20,10 @@ Replace row 62 of `.venv/lib/python3.12/site-packages/autodistill/utils.py`
 ## To run the inference on an image folder
 
 ```bash
-label -i <path to image folder> optional: -m <model name >
+label -i <path to image folder> optional: --save --batch
 ```
+
+results are saved in `<image-folder>_results` folder
 
 ## Results and Observations
 

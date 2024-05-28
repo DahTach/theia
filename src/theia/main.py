@@ -4,6 +4,7 @@ import cv2 as cv
 import warnings
 import pathlib
 from tqdm import tqdm
+import utils
 
 parser = argparse.ArgumentParser()
 parser.add_argument(
@@ -14,16 +15,10 @@ parser.add_argument(
     "--images",
     type=str,
     default="~/Developer/datasets/pallets_sorted/vertical/",
-    help="Image Folder Path",
+    help="Images of Images Folder Path",
 )
-parser.add_argument(
-    "--image",
-    type=str,
-    help="Single Image",
-)
-parser.add_argument(
-    "-b", "--batch", action="store_true", default=False, help="Batch Mode"
-)
+parser.add_argument("--mode", type=int, default=0, help="0: batch, 1: nms, 2: Base")
+
 parser.add_argument("--device", type=str, help="Device to use")
 parser.add_argument(
     "-s", "--save", action="store_true", default=False, help="Save Drawn Images"
@@ -54,15 +49,33 @@ def get_image_files(path):
 #         model.show(image, results)
 
 
+def predict(img_path, model, method=0, save=False):
+    image = cv.imread(img_path)
+    if method == 0:
+        results = model.batch_predict(image)
+        image = model.draw_batch(image, results)
+    elif method == 1:
+        results = model.nms_predict(image)
+        image = model.draw_nms(image, results)
+    elif method == 2:
+        results = model.base_predict(img_path)
+        image = model.draw_base(image, results)
+    if save:
+        utils.save_image(image, img_path)
+    else:
+        utils.show(image)
+
+
 def main():
     from dino import Dino
     from autodistill.detection import CaptionOntology
     from caption import captions
-    import utils
 
     args = parser.parse_args()
 
     utils.filter_warnings()
+
+    # TODO: Implement multithreading
 
     try:
         model = Dino(
@@ -71,42 +84,20 @@ def main():
     except Exception as e:
         raise e
 
-    if args.save:
-        if args.image:
-            path = pathlib.Path(args.image)
+    # check if the path is a file or a folder
+    if os.path.isfile(args.images):
+        if args.save:
+            path = pathlib.Path(args.images)
             results_dir = path.parent.parent / f"{path.parent.name}_results"
             results_dir.mkdir(exist_ok=True)
-        else:
+        predict(args.images, model, method=args.mode, save=args.save)
+    if os.path.isdir(args.images):
+        if args.save:
             path = pathlib.Path(args.images)
             results_dir = path.parent / f"{path.name}_results"
             results_dir.mkdir(exist_ok=True)
-
-    if args.image:
-        image = cv.imread(args.image)
-        if args.batch:
-            results = model.batch_predict(image)
-            image = model.draw_batch(image, results)
-        else:
-            results = model.nms_predict(image)
-            image = model.draw_nms(image, results)
-        if args.save:
-            utils.save_image(image, args.image)
-        else:
-            utils.show(image)
-    else:
         for image_path in tqdm(get_image_files(args.images)):
-            image = cv.imread(image_path)
-            if args.batch:
-                results = model.batch_predict(image)
-                image = model.draw_batch(image, results)
-            else:
-                results = model.nms_predict(image)
-                image = model.draw_nms(image, results)
-            if args.save:
-                utils.save_image(image, image_path)
-            else:
-                utils.show(image)
-            break
+            predict(image_path, model, method=args.mode, save=args.save)
 
 
 if __name__ == "__main__":

@@ -3,8 +3,13 @@ import torch
 from itertools import zip_longest
 
 # from gradio_counter import Counter as grCounter
-from model import models, Model
 from caption import captions
+import utils
+from dino import Dino
+from autodistill.detection import CaptionOntology
+import cv2 as cv
+from typing import List, Tuple
+import itertools
 
 """
 Interface Steps:
@@ -22,14 +27,68 @@ class GradioApp:
         self.max_captions = 8
         self.aliases = {}
         self.update_calls = 0
+        self.device = self.get_device()
 
-    def load_model(self, model_name):
-        self.model = Model(model_name, self.get_captions())
+    def get_device(self):
+        if torch.cuda.is_available():
+            print("using cuda")
+            return "cuda"
+        if torch.backends.mps.is_available() and torch.backends.mps.is_built():
+            print("using cpu because mps is not fully supported yet")
+            return "cpu"
+        else:
+            print("using cpu")
+            return "cpu"
 
-    def predict(self, image):
-        results = self.model.predict(image)
-        image = self.model.show(image, results)
-        return image
+    def load_model(self):
+        try:
+            self.model = Dino(
+                ontology=CaptionOntology(utils.get_captions(captions)),
+                device=self.device,
+            )
+        except Exception as e:
+            raise e
+
+    def predict(self, image_path, progress=gr.Progress(track_tqdm=True)):
+        """
+        As output component:
+        Expects a a tuple of a base image and list of annotations:
+        a tuple[Image, list[Annotation]].
+        The Image itself can be str filepath, numpy.ndarray, or PIL.Image.
+        Each Annotation is a tuple[Mask, str].
+        The Mask can be either:
+        - a tuple of 4 int's representing the bounding box coordinates (x1, y1, x2, y2)
+        - 0-1 confidence mask in the form of a numpy.ndarray of the same shape as the image,
+        while the second element of the Annotation tuple is a str label.
+
+        """
+        results = self.model.base_predict(image_path)
+        """
+        results = sv.Detections(
+            xyxy=xyxy,
+            mask=mask,
+            confidence=confidence,
+            class_id=class_id,
+            tracker_id=tracker_id,
+        )
+        """
+        boxes = results.xyxy
+        ids = results.class_id
+        aliases_list = []
+        for _, aliases in captions.items():
+            for alias in aliases:
+                aliases_list.append(alias)
+
+        annotations = []
+        for box, id in zip(boxes, ids):
+            try:
+                name = aliases_list[id]
+            except IndexError:
+                name = "unknown"
+                print(f"Unknown class id: {id}")
+            box = (int(b) for b in box)
+            annotations.append((box, str(name)))
+        return image_path, annotations
 
     def make_captions(self, k):
         k = int(k)
@@ -216,54 +275,18 @@ class GradioApp:
 
             # TODO: Implement class addition and removal
 
-            # with gr.Row():
-            #     n_classes = gr.Slider(
-            #         1,
-            #         maximum=self.max_captions,
-            #         value=len(captions.keys()),
-            #         step=1,
-            #         visible=False,
-            #     )
-            #
-            #     cls_name = gr.Textbox(
-            #         placeholder="New Class", visible=True, interactive=True
-            #     )
-            #
-            #     def add_cl(n, cls):
-            #         captions.setdefault(cls, [])
-            #         return n + 1
-            #
-            #     add_cls = gr.Button("Add Class", size="sm")
-            #     add_cls.click(add_cl, inputs=[n_classes, cls_name], outputs=n_classes)
-            #
-            #     def rm_cl(n, cls):
-            #         captions.pop(cls)
-            #         return n - 1
-            #
-            #     del_cls = gr.Button("Remove Class", size="sm")
-            #     del_cls.click(rm_cl, inputs=[n_classes, cls_name], outputs=n_classes)
-            #
-            #     def rerender():
-            #         labels.render()
-            #
-            #     n_classes.change(rerender)
+            with gr.Row():
+                image = gr.Image(label="Image", type="filepath")
 
             with gr.Row():
-                model_name = gr.Dropdown(
-                    label="Model", choices=[model for model in models.keys()]
-                )
+                results = gr.AnnotatedImage(label="Results")
 
-                model_name.change(self.load_model, inputs=model_name)
-
+            with gr.Row():
                 predict = gr.Button(value="Predict")
 
-            with gr.Row():
-                image = gr.Image(label="Image")
-
-            with gr.Row():
-                results = gr.Image()
-
             predict.click(self.predict, inputs=[image], outputs=[results])
+
+            demo.load(self.load_model, show_progress=True)
 
         self.demo = demo
 

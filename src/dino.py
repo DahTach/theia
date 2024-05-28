@@ -126,7 +126,7 @@ class Dino:
 
             detections_list.append(detections)
 
-            progress.update(1)
+            # progress.update(1)
 
         detections = combine_detections(
             detections_list, overwrite_class_ids=range(len(detections_list))

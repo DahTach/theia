@@ -35,6 +35,22 @@ captions = {
 }
 
 # captions = {
+#     "water": ["bottle pack", "water crate", "pack of bottles", "plastic pack"],
+#     "box": ["cardboard", "parcel", "carton", "box"],
+#     "keg": [
+#         "keg",
+#         "beer keg",
+#         "beer barrel",
+#         "barrel",
+#         "metal barrel",
+#         "metal keg",
+#         "metal cask",
+#         "metal drum",
+#     ],
+#     "can pack": ["carton cans", "can case", "can crate", "pack of cans"],
+# }
+
+# captions = {
 #     "bottle": [
 #         "wine bottle",
 #         "liquor bottle",
