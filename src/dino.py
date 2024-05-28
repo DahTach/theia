@@ -110,12 +110,13 @@ class Dino:
                 class_ids.append(None)
         return np.array(class_ids)
 
-    def base_predict(self, input: str, progress=None) -> sv.Detections:
+    def base_predict(self, input: str, progress=None, prompts=[]) -> sv.Detections:
         image = load_image(input, return_format="cv2")
 
         detections_list = []
 
-        progress = tqdm(self.ontology.prompts())
+        # progress = tqdm(self.ontology.prompts())
+        progress = tqdm(prompts)
         for prompt in progress:
             detections = self.model.predict_with_classes(
                 image=image,

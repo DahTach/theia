@@ -29,26 +29,26 @@ class Captions:
             raise KeyError(f"Prompt {prompt} not found in captions")
 
 
-captions = {
-    "water": ["bottle pack", "water crate"],
-    "box": ["cardboard", "package"],
-}
-
 # captions = {
-#     "water": ["bottle pack", "water crate", "pack of bottles", "plastic pack"],
-#     "box": ["cardboard", "parcel", "carton", "box"],
-#     "keg": [
-#         "keg",
-#         "beer keg",
-#         "beer barrel",
-#         "barrel",
-#         "metal barrel",
-#         "metal keg",
-#         "metal cask",
-#         "metal drum",
-#     ],
-#     "can pack": ["carton cans", "can case", "can crate", "pack of cans"],
+#     "water": ["bottle pack", "water crate"],
+#     "box": ["cardboard", "package"],
 # }
+
+captions = {
+    "water": ["bottle pack", "water crate", "pack of bottles", "plastic pack"],
+    "box": ["cardboard", "parcel", "carton", "box"],
+    "keg": [
+        "keg",
+        "beer keg",
+        "beer barrel",
+        "barrel",
+        "metal barrel",
+        "metal keg",
+        "metal cask",
+        "metal drum",
+    ],
+    "can pack": ["carton cans", "can case", "can crate", "pack of cans"],
+}
 
 # captions = {
 #     "bottle": [

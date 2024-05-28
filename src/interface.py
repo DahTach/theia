@@ -49,7 +49,7 @@ class GradioApp:
         except Exception as e:
             raise e
 
-    def predict(self, image_path, progress=gr.Progress(track_tqdm=True)):
+    def predict(self, image_path,progress=gr.Progress(track_tqdm=True)):
         """
         As output component:
         Expects a a tuple of a base image and list of annotations:
@@ -62,7 +62,12 @@ class GradioApp:
         while the second element of the Annotation tuple is a str label.
 
         """
-        results = self.model.base_predict(image_path)
+        prompts = []
+        for cls, aliases in self.aliases.items():
+            for alias in aliases:
+                prompts.append(alias)
+
+        results = self.model.base_predict(image_path, prompts=prompts, progress=progress)
         """
         results = sv.Detections(
             xyxy=xyxy,
@@ -119,12 +124,20 @@ class GradioApp:
                 )  # Set default value for repeated values
         return inverted_dict
 
-    def update_aliases(self, alias, cls):
+
+    def make_aliases(self):
+        self.aliases = captions
+        for key, item in captions.items():
+            self.aliases.setdefault(key, [])
+            self.aliases[key] = item + ["alias" * (self.max_captions - len(item))]
+
+    def update_aliases(self, alias, key):
+        class_id, index = key.split(':')
         self.update_calls += 1
         try:
-            self.aliases[cls].append(alias)
+            self.aliases[class_id][index] = alias
         except KeyError:
-            self.aliases.setdefault(cls, [alias])
+            self.aliases.setdefault(class_id, [alias])
 
     def interface(self):
         with gr.Blocks() as demo:
@@ -167,6 +180,9 @@ class GradioApp:
                                 aliases1 = []
 
                                 for i in range(self.max_captions):
+
+                                    key = gr.Textbox(visible=False, value=f'{elem1}:{i}')
+
                                     alias = gr.Textbox(
                                         show_label=False,
                                         value=(
@@ -174,20 +190,13 @@ class GradioApp:
                                             if i < len(captions[elem1])
                                             else "alias"
                                         ),
-                                        interactive=True,
+                                        interactive=True, 
+                                        key = key
                                     )
-
-                                    if alias.value != "alias":
-                                        try:
-                                            self.aliases[elem1].append(alias.value)
-                                        except KeyError:
-                                            self.aliases.setdefault(
-                                                elem1, [alias.value]
-                                            )
 
                                     alias.blur(
                                         self.update_aliases,
-                                        inputs=[alias, cls],
+                                        inputs=[alias, key],
                                     )
 
                                     aliases1.append(alias)
@@ -199,6 +208,7 @@ class GradioApp:
                                 inputs=s,
                                 outputs=aliases1,
                             )
+
 
                         if elem2:
                             with gr.Column(scale=1):
@@ -241,6 +251,9 @@ class GradioApp:
                                     aliases2 = []
 
                                     for i in range(self.max_captions):
+
+                                        key = gr.Textbox(visible=False, value=f'{elem2}:{i}')
+
                                         alias = gr.Textbox(
                                             show_label=False,
                                             value=(
@@ -249,19 +262,12 @@ class GradioApp:
                                                 else "alias"
                                             ),
                                             interactive=True,
+                                            key = key
                                         )
-
-                                        if alias.value != "alias":
-                                            try:
-                                                self.aliases[elem2].append(alias.value)
-                                            except KeyError:
-                                                self.aliases.setdefault(
-                                                    elem2, [alias.value]
-                                                )
 
                                         alias.blur(
                                             self.update_aliases,
-                                            inputs=[alias, cls],
+                                            inputs=[alias, key],
                                         )
                                         aliases2.append(alias)
 
@@ -272,6 +278,7 @@ class GradioApp:
                                     inputs=s,
                                     outputs=aliases2,
                                 )
+                            demo.load(self.make_aliases)
 
             # TODO: Implement class addition and removal
 
@@ -294,7 +301,7 @@ class GradioApp:
 def main():
     app = GradioApp()
     app.interface()
-    app.demo.launch()
+    app.demo.launch(share=True,  allowed_paths=["~/dataset/pallets_sorted/"])
 
 
 if __name__ == "__main__":
