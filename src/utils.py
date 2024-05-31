@@ -8,10 +8,8 @@ import pathlib
 
 def get_captions(captions):
     """Inverts a dictionary with list values.
-
     Args:
         d: The dictionary to invert.
-
     Returns:
         The inverted dictionary.
     """

@@ -1,137 +1,67 @@
-from autodistill.detection import CaptionOntology
-from typing import Dict, List
+import json
+from typing import List, Dict
+
+FILE_PATH = "/Users/francescotacinelli/Developer/theia/data/captions.json"
 
 
 class Captions:
-    def __init__(self, captions: Dict[str, List[str]]):
-        self.captions = captions
+    def __init__(self, file_path):
+        if not file_path:
+            raise FileNotFoundError("File path not provided.")
+        with open(file_path, "r") as f:
+            data = json.load(f)
+        self.dict: Dict[str, List[str]] = data
 
-    def classes(self):
-        return set(self.captions.keys())
+    @property
+    def categories(self):
+        return list(self.dict.keys())
 
-    def __getitem__(self, item: str):
-        return self.captions.get(item)
+    @property
+    def aliases(self):
+        return [alias for aliases in self.dict.values() for alias in aliases]
 
-    def __iter__(self):
-        return iter(self.captions)
+    def __getitem__(self, item):
+        return self.dict[item]
 
-    def __repr__(self):
-        return f"Captions({self.captions})"
+    def get(self, alias, default=0):
+        for idx, (category, aliases) in enumerate(self.dict.items()):
+            if alias in aliases:
+                return idx
+        print(f"Alias {alias} not found in categories.")
+        return default
 
-    def class_prompts(self, class_name: str) -> List[str]:
-        return self.captions[class_name]
+    def save(self, file_path=FILE_PATH):
+        """Saves the model to a file."""
+        with open(file_path, "w") as f:
+            json.dump(self.dict, f)
 
-    def prompt_class(self, prompt: str) -> List[str] | str:
-        key_list = [key for key, val in self.captions.items() if val == prompt]
-        if len(key_list) > 0:
-            return key_list[0]
-        else:
-            raise KeyError(f"Prompt {prompt} not found in captions")
+    def edit(self, category: str, alias: str, index: int | None = None):
+        """Adds or replaces an alias to a category."""
+        # check if category exists
+        if not self.dict.get(category, False):
+            self.dict.setdefault(category, [alias])
+        elif index:
+            # check if index is valid
+            if index < len(self.dict[category]):
+                self.dict[category][index] = alias
+            else:
+                self.dict[category].append(alias)
+        # if alias already exists in category replace it
+        elif alias in self.dict[category]:
+            for i, a in enumerate(self.dict[category]):
+                if a == alias:
+                    self.dict[category][i] = alias
+        # check if alias already exists
+        elif alias not in self.aliases:
+            self.dict[category].append(alias)
 
 
-# captions = {
-#     "water": ["bottle pack", "water crate"],
-#     "box": ["cardboard", "package"],
-# }
-
-captions = {
-    "water": ["bottle pack", "water crate", "pack of bottles", "plastic pack"],
-    "box": ["cardboard", "parcel", "carton", "box"],
-    "keg": [
-        "keg",
-        "beer keg",
-        "beer barrel",
-        "barrel",
-        "metal barrel",
-        "metal keg",
-        "metal cask",
-        "metal drum",
-    ],
-    "can pack": ["carton cans", "can case", "can crate", "pack of cans"],
-}
-
-# captions = {
-#     "bottle": [
-#         "wine bottle",
-#         "liquor bottle",
-#         "glass bottle",
-#         "water bottle",
-#         "beverage bottle",
-#         "bottled drink",
-#         "packaged drink",
-#     ],
-#     "can": ["aluminum can", "soda can", "beer can", "canned drink"],
-#     "bottle_pack": ["bottle crate", "case of bottles", "pack of bottles"],
-#     "can_pack": [
-#         "can box",
-#         "carton of cans",
-#         "pack of cans",
-#         "case of cans",
-#         "tray of cans",
-#     ],
-#     "keg": ["beer keg", "keg"],
-# }
 #
-
-# captions = {
-#     "water": [
-#         "water pack",
-#         "water container",
-#         "water crate",
-#         "water case",
-#         "bottle crate",
-#         "bottle case",
-#         "bottle pack",
-#         "bottle carton",
-#     ],
-#     "cans": ["can pack", "carton cans", "can paket", "can case", "can crate"],
-#     "box": [
-#         "cardboard box",
-#         "cardboard",
-#         "box",
-#         "package",
-#         "parcel",
-#         "carton",
-#         "pack",
-#         "packet",
-#         "case",
-#         "crate",
-#         "chest",
-#         "trunk",
-#         "coffer",
-#         "casket",
-#         "hamper",
-#         "canteen",
-#         "bin",
-#         "container",
-#     ],
-#     "keg": [
-#         "keg",
-#         "beer keg",
-#         "beer barrel",
-#         "barrel",
-#         "cask",
-#         "vat",
-#         "tun",
-#         "drum",
-#         "hogshead",
-#         "firkin",
-#         "tub",
-#         "tank",
-#         "container",
-#         "vessel",
-#     ],
-#     "bottle": [
-#         "bottle",
-#         "flask",
-#         "vial",
-#         "jar",
-#         "jug",
-#         "flagon",
-#         "decanter",
-#         "carboy",
-#         "ampoule",
-#         "phial",
-#         "demijohn",
-#     ],
-# }
+# def main():
+#     captions = Captions(FILE_PATH)
+#     print(captions.categories)
+#     print(captions.aliases)
+#
+#
+# if __name__ == "__main__":
+#     main()

@@ -7,7 +7,6 @@ import groundingdino.datasets.transforms as T
 import numpy as np
 import torch
 import torchvision
-from caption import captions
 from groundingdino.models import build_model
 from groundingdino.util.inference import Model
 from groundingdino.util.misc import clean_state_dict
@@ -20,7 +19,10 @@ import utils
 import supervision as sv
 from autodistill.helpers import load_image
 from autodistill_grounding_dino.helpers import combine_detections, load_grounding_dino
+from caption import Captions
 
+TEST_FILE_PATH = "/Users/francescotacinelli/Developer/theia/data/test_captions.json"
+captions = Captions(TEST_FILE_PATH)
 
 # import argparse
 # parser = argparse.ArgumentParser()
@@ -39,7 +41,7 @@ from autodistill_grounding_dino.helpers import combine_detections, load_groundin
 
 
 class Dino:
-    def __init__(self, ontology, device, box_threshold=0.35, text_threshold=0.25):
+    def __init__(self, ontology, device=None, box_threshold=0.35, text_threshold=0.25):
         self.device = self.get_device() if not device else device
         self.ontology = ontology
         self.box_threshold = box_threshold
@@ -110,6 +112,22 @@ class Dino:
                 class_ids.append(None)
         return np.array(class_ids)
 
+    def evaluate(self, image, captions, box_threshold=0.1, text_threshold=0.25)-> List[Tuple]:
+        image = cv.imread(image)
+        predictions: List[Tuple] = []
+        for prompt in tqdm(captions):
+            boxes, class_ids = self.model.fast_predict_with_prompt(
+                image=image,
+                prompt=prompt,
+                box_threshold=box_threshold,
+                text_threshold=text_threshold,
+            )
+
+            for class_id, box in zip(class_ids, boxes):
+                predictions.append((class_id, box))
+
+        return predictions
+
     def base_predict(self, input: str, progress=None, prompts=[]) -> sv.Detections:
         image = load_image(input, return_format="cv2")
 
@@ -144,7 +162,9 @@ class Dino:
     ):
         # TODO: draw the results without nms
         detections = [torch.tensor([]), torch.tensor([]), []]
-        progress = tqdm([prompt for prompts in captions.values() for prompt in prompts])
+        progress = tqdm(
+            [prompt for prompts in captions.dict.values() for prompt in prompts]
+        )
         for prompt in progress:
             boxes, confidences, class_ids = self.model.predict_with_prompt(
                 image=image,
@@ -173,7 +193,7 @@ class Dino:
         progress=None,
     ):
         detections = [torch.tensor([]), torch.tensor([]), []]
-        progress = tqdm(captions.items())
+        progress = tqdm(captions.dict.items())
         for cls, prompts in progress:
             boxes, confidences, class_ids = self.model.predict_with_prompts(
                 image=image,
@@ -321,7 +341,7 @@ class Dino:
 
         class_ids = []
         for prompt_id in prompt_ids:
-            for cls, prompts in captions.items():
+            for cls, prompts in captions.dict.items():
                 if prompt_id in prompts:
                     class_ids.append(cls)
 
@@ -425,6 +445,28 @@ class DinoModel(Model):
         boxes = box_convert(boxes=boxes, in_fmt="cxcywh", out_fmt="xyxy")
         return boxes, confidence, class_id
 
+    def fast_predict_with_prompt(
+        self,
+        image: np.ndarray,
+        prompt: str,
+        box_threshold: float,
+        text_threshold: float,
+    ) -> Tuple[List[torch.Tensor], List]:
+        processed_image = self.preprocess_image(image_bgr=image).to(self.device)
+        boxes = self.fast_predict(
+            model=self.model,
+            image=processed_image,
+            caption=prompt,
+            box_threshold=box_threshold,
+            text_threshold=text_threshold,
+            device=self.device,
+        )
+
+        class_id = captions.get(prompt)
+        class_ids = [class_id for _ in range(len(boxes))]
+
+        return boxes, class_ids
+
     def predict_with_prompt(
         self,
         image: np.ndarray,
@@ -456,6 +498,28 @@ class DinoModel(Model):
             return result
         return result + "."
 
+    def fast_predict(
+        self,
+        model,
+        image: torch.Tensor,
+        caption: str,
+        box_threshold: float,
+        text_threshold: float,
+        device: str = "cpu",
+    ) -> List[torch.Tensor]:
+        caption = self.preprocess_caption(caption=caption)
+
+        model = model.to(device)
+        image = image.to(device)
+
+        with torch.no_grad():
+            outputs = model(image[None], captions=[caption])
+
+        mask = outputs["pred_logits"].sigmoid()[0].max(dim=1)[0] > box_threshold
+        boxes = outputs["pred_boxes"][0][mask]
+
+        return boxes
+
     def predict(
         self,
         model,
@@ -479,6 +543,8 @@ class DinoModel(Model):
         prediction_boxes = outputs["pred_boxes"].cpu()[
             0
         ]  # prediction_boxes.shape = (nq, 4)
+
+        # TODO: refactor to a new predict method that returns the original boxes tensors
 
         mask = prediction_logits.max(dim=1)[0] > box_threshold
         logits = prediction_logits[mask]  # logits.shape = (n, 256)

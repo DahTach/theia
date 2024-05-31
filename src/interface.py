@@ -1,9 +1,10 @@
 import gradio as gr
+import atexit
 import torch
 from itertools import zip_longest
 
 # from gradio_counter import Counter as grCounter
-from caption import captions
+from caption import Captions
 import utils
 from dino import Dino
 from autodistill.detection import CaptionOntology
@@ -25,9 +26,18 @@ Interface Steps:
 class GradioApp:
     def __init__(self) -> None:
         self.max_captions = 8
-        self.aliases = {}
+        self.captions = Captions()
         self.update_calls = 0
         self.device = self.get_device()
+
+    @property
+    def aliases(self):
+        return self.captions.dict
+
+    def exit_handler(self):
+        self.captions.save()
+        # unload model
+        self.model = None
 
     def get_device(self):
         if torch.cuda.is_available():
@@ -43,44 +53,31 @@ class GradioApp:
     def load_model(self):
         try:
             self.model = Dino(
-                ontology=CaptionOntology(utils.get_captions(captions)),
+                ontology=CaptionOntology(utils.get_captions(self.captions.dict)),
                 device=self.device,
             )
         except Exception as e:
             raise e
 
-    def predict(self, image_path,progress=gr.Progress(track_tqdm=True)):
-        """
-        As output component:
-        Expects a a tuple of a base image and list of annotations:
-        a tuple[Image, list[Annotation]].
-        The Image itself can be str filepath, numpy.ndarray, or PIL.Image.
-        Each Annotation is a tuple[Mask, str].
-        The Mask can be either:
-        - a tuple of 4 int's representing the bounding box coordinates (x1, y1, x2, y2)
-        - 0-1 confidence mask in the form of a numpy.ndarray of the same shape as the image,
-        while the second element of the Annotation tuple is a str label.
-
-        """
+    def predict(self, image_path, progress=gr.Progress(track_tqdm=True)):
         prompts = []
         for cls, aliases in self.aliases.items():
             for alias in aliases:
                 prompts.append(alias)
 
-        results = self.model.base_predict(image_path, prompts=prompts, progress=progress)
-        """
-        results = sv.Detections(
-            xyxy=xyxy,
-            mask=mask,
-            confidence=confidence,
-            class_id=class_id,
-            tracker_id=tracker_id,
+        results = self.model.base_predict(
+            image_path, prompts=prompts, progress=progress
         )
-        """
+
+        annotations = self.postprocess_results(results)
+
+        return image_path, annotations
+
+    def postprocess_results(self, results):
         boxes = results.xyxy
         ids = results.class_id
         aliases_list = []
-        for _, aliases in captions.items():
+        for _, aliases in self.aliases.items():
             for alias in aliases:
                 aliases_list.append(alias)
 
@@ -93,7 +90,7 @@ class GradioApp:
                 print(f"Unknown class id: {id}")
             box = (int(b) for b in box)
             annotations.append((box, str(name)))
-        return image_path, annotations
+        return annotations
 
     def make_captions(self, k):
         k = int(k)
@@ -106,33 +103,18 @@ class GradioApp:
         for i in zip_longest(iterable[0::2], iterable[1::2]):
             yield (i)
 
-    def get_captions(self):
-        """Inverts a dictionary with list values.
+    # def make_aliases(self):
+    #     self.aliases = captions
+    #     for key, item in captions.items():
+    #         self.aliases.setdefault(key, [])
+    #         self.aliases[key] = item + ["alias" * (self.max_captions - len(item))]
 
-        Args:
-            d: The dictionary to invert.
+    def update_captions(self, caption, key):
+        class_id, index = key.split(":")
+        self.captions.edit(class_id, caption, key)
 
-        Returns:
-            The inverted dictionary.
-        """
-
-        inverted_dict = {}
-        for key, value in self.aliases.items():
-            for item in value:
-                inverted_dict.setdefault(
-                    item, key
-                )  # Set default value for repeated values
-        return inverted_dict
-
-
-    def make_aliases(self):
-        self.aliases = captions
-        for key, item in captions.items():
-            self.aliases.setdefault(key, [])
-            self.aliases[key] = item + ["alias" * (self.max_captions - len(item))]
-
-    def update_aliases(self, alias, key):
-        class_id, index = key.split(':')
+    def old_update_aliases(self, alias, key):
+        class_id, index = key.split(":")
         self.update_calls += 1
         try:
             self.aliases[class_id][index] = alias
@@ -142,21 +124,17 @@ class GradioApp:
     def interface(self):
         with gr.Blocks() as demo:
             with gr.Row() as labels:
-                for elem1, elem2 in self.pairwise(captions.keys()):
+                for elem1, elem2 in self.pairwise(self.aliases.keys()):
                     with gr.Row():
                         with gr.Column(scale=1):
                             with gr.Row():
                                 with gr.Column(scale=3):
-                                    cls = gr.Dropdown(
-                                        label="Class",
-                                        choices=list(captions.keys()),
-                                        value=elem1,
-                                    )
+                                    gr.Button(value=elem1, interactive=False)
 
                                     s = gr.Slider(
                                         1,
                                         maximum=self.max_captions,
-                                        value=len(captions[elem1]),
+                                        value=len(self.aliases[elem1]),
                                         step=1,
                                         visible=False,
                                     )
@@ -180,22 +158,23 @@ class GradioApp:
                                 aliases1 = []
 
                                 for i in range(self.max_captions):
-
-                                    key = gr.Textbox(visible=False, value=f'{elem1}:{i}')
+                                    key = gr.Textbox(
+                                        visible=False, value=f"{elem1}:{i}"
+                                    )
 
                                     alias = gr.Textbox(
                                         show_label=False,
                                         value=(
-                                            captions[elem1][i]
-                                            if i < len(captions[elem1])
+                                            self.aliases[elem1][i]
+                                            if i < len(self.aliases[elem1])
                                             else "alias"
                                         ),
-                                        interactive=True, 
-                                        key = key
+                                        interactive=True,
+                                        key=key.value,
                                     )
 
                                     alias.blur(
-                                        self.update_aliases,
+                                        self.update_captions,
                                         inputs=[alias, key],
                                     )
 
@@ -209,21 +188,16 @@ class GradioApp:
                                 outputs=aliases1,
                             )
 
-
                         if elem2:
                             with gr.Column(scale=1):
                                 with gr.Row():
                                     with gr.Column(scale=3):
-                                        cls = gr.Dropdown(
-                                            label="Class",
-                                            choices=captions.keys(),
-                                            value=elem2,
-                                        )
+                                        gr.Button(value=elem2, interactive=False)
 
                                         s = gr.Slider(
                                             1,
                                             maximum=self.max_captions,
-                                            value=len(captions[elem2]),
+                                            value=len(self.aliases[elem2]),
                                             step=1,
                                             visible=False,
                                         )
@@ -251,22 +225,23 @@ class GradioApp:
                                     aliases2 = []
 
                                     for i in range(self.max_captions):
-
-                                        key = gr.Textbox(visible=False, value=f'{elem2}:{i}')
+                                        key = gr.Textbox(
+                                            visible=False, value=f"{elem2}:{i}"
+                                        )
 
                                         alias = gr.Textbox(
                                             show_label=False,
                                             value=(
-                                                captions[elem2][i]
-                                                if i < len(captions[elem2])
+                                                self.aliases[elem2][i]
+                                                if i < len(self.aliases[elem2])
                                                 else "alias"
                                             ),
                                             interactive=True,
-                                            key = key
+                                            key=key.value,
                                         )
 
                                         alias.blur(
-                                            self.update_aliases,
+                                            self.update_captions,
                                             inputs=[alias, key],
                                         )
                                         aliases2.append(alias)
@@ -278,12 +253,17 @@ class GradioApp:
                                     inputs=s,
                                     outputs=aliases2,
                                 )
-                            demo.load(self.make_aliases)
 
             # TODO: Implement class addition and removal
 
             with gr.Row():
-                image = gr.Image(label="Image", type="filepath")
+                # FIX: file explorer not working
+                image = gr.FileExplorer(
+                    label="Select Image",
+                    glob="*/*.jpg;*/*.jpeg;*/*.png",
+                    root_dir="/Users/francescotacinelli/Developer/datasets/pallets_sorted/vertical/",
+                    file_count="single",
+                )
 
             with gr.Row():
                 results = gr.AnnotatedImage(label="Results")
@@ -301,7 +281,9 @@ class GradioApp:
 def main():
     app = GradioApp()
     app.interface()
-    app.demo.launch(share=True,  allowed_paths=["~/dataset/pallets_sorted/"])
+    # app.demo.launch(share=True, allowed_paths=["~/dataset/pallets_sorted/"])
+    app.demo.launch()
+    atexit.register(app.exit_handler)
 
 
 if __name__ == "__main__":
