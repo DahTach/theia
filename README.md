@@ -33,3 +33,6 @@ The better performing models seem to be:
 - GroundingDino
 
 GroundingDino appears to achieve better results in non batched mode.
+
+
+test
