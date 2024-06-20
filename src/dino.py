@@ -19,9 +19,9 @@ import utils
 import supervision as sv
 from autodistill.helpers import load_image
 from autodistill_grounding_dino.helpers import combine_detections, load_grounding_dino
-from caption import Captions
+from dataset import Captions
 
-TEST_FILE_PATH = "/Users/francescotacinelli/Developer/theia/data/test_captions.json"
+TEST_FILE_PATH = "/Users/francescotacinelli/Developer/theia/data/captions.json"
 captions = Captions(TEST_FILE_PATH)
 
 # import argparse
@@ -110,12 +110,65 @@ class Dino:
                 class_ids.append(classes.index(phrase))
             except ValueError:
                 class_ids.append(None)
+
         return np.array(class_ids)
 
-    def evaluate(self, image, captions, box_threshold=0.1, text_threshold=0.25)-> List[Tuple]:
+    def evalias(
+        self, image, alias, class_id, box_threshold=0.1, text_threshold=0.25
+    ) -> List[Tuple]:
+        image = cv.imread(image)
+
+        boxes, _ = self.model.fast_predict_with_prompt(
+            image=image,
+            prompt=alias,
+            box_threshold=box_threshold,
+            text_threshold=text_threshold,
+        )
+
+        predictions: List[Tuple] = [(class_id, box) for box in boxes]
+
+        return predictions
+
+    def gradio_predict(
+        self, image, alias, box_threshold=0.1, text_threshold=0.25
+    ) -> List[Tuple]:
+        image = cv.imread(image)
+        source_h, source_w, _ = image.shape
+
+        boxes, prompt = self.model.fast_predict_with_prompt(
+            image=image,
+            prompt=alias,
+            box_threshold=box_threshold,
+            text_threshold=text_threshold,
+        )
+
+        # if prompt is multiple strings join them
+        if isinstance(prompt, list):
+            prompt = " ".join(prompt)
+
+        boxes = boxes * torch.Tensor([source_w, source_h, source_w, source_h])
+
+        boxes = box_convert(
+            boxes=torch.tensor(boxes),
+            in_fmt="cxcywh",
+            out_fmt="xyxy",
+        )
+
+        boxes = self.nms(boxes)
+
+        predictions: List[Tuple] = [
+            ([int(coord) for coord in box], prompt) for box in boxes
+        ]
+
+        return predictions
+
+    def evaluate(
+        self, image, captions, box_threshold=0.1, text_threshold=0.25
+    ) -> List[Tuple]:
         image = cv.imread(image)
         predictions: List[Tuple] = []
-        for prompt in tqdm(captions):
+
+        for prompt in tqdm(captions.aliases):
             boxes, class_ids = self.model.fast_predict_with_prompt(
                 image=image,
                 prompt=prompt,
@@ -123,7 +176,9 @@ class Dino:
                 text_threshold=text_threshold,
             )
 
-            for class_id, box in zip(class_ids, boxes):
+            class_id = captions.get(prompt)
+
+            for box in boxes:
                 predictions.append((class_id, box))
 
         return predictions
@@ -213,6 +268,59 @@ class Dino:
         filtered_detections = self.fast_nms(detections)
 
         return filtered_detections
+
+    def nms(
+        self,
+        boxes,
+        iou_threshold=0.5,
+        containment_threshold=0.8,
+        size_deviation_threshold=1.5,
+    ):
+        # Perform NMS
+        keep_indices = torchvision.ops.nms(
+            boxes=boxes,
+            iou_threshold=iou_threshold,
+            scores=torch.Tensor([1] * len(boxes)),
+        )
+
+        # Remove boxes that are bigger than average by size deviation threshold
+        areas = torchvision.ops.box_area(boxes)
+        avg_area = torch.mean(areas)
+        for i, area in enumerate(areas):
+            if area > avg_area * size_deviation_threshold:
+                # Remove this index from keep_indices
+                keep_indices = keep_indices[keep_indices != i]
+
+        # Remove boxes with high containment in others
+        remove_indices = []
+        for i in keep_indices:
+            box_i = boxes[i]
+            for j in keep_indices:
+                if i == j:  # Skip self-comparison
+                    continue
+                box_j = boxes[j]
+
+                # Calculate intersection area
+                inter_width = torch.max(
+                    torch.tensor(0),
+                    torch.min(box_i[2], box_j[2]) - torch.max(box_i[0], box_j[0]),
+                )
+                inter_height = torch.max(
+                    torch.tensor(0),
+                    torch.min(box_i[3], box_j[3]) - torch.max(box_i[1], box_j[1]),
+                )
+                inter_area = inter_width * inter_height
+                box_i_area = (box_i[2] - box_i[0]) * (box_i[3] - box_i[1])
+
+                # Check for high containment
+                containment_ratio = inter_area / box_i_area
+                if containment_ratio > containment_threshold:
+                    remove_indices.append(i)
+                    break
+
+        boxes = [boxes[idx] for idx in keep_indices if idx not in remove_indices]
+
+        return boxes
 
     def fast_nms(
         self,
@@ -451,7 +559,7 @@ class DinoModel(Model):
         prompt: str,
         box_threshold: float,
         text_threshold: float,
-    ) -> Tuple[List[torch.Tensor], List]:
+    ) -> Tuple[List[torch.Tensor], str]:
         processed_image = self.preprocess_image(image_bgr=image).to(self.device)
         boxes = self.fast_predict(
             model=self.model,
@@ -462,10 +570,10 @@ class DinoModel(Model):
             device=self.device,
         )
 
-        class_id = captions.get(prompt)
-        class_ids = [class_id for _ in range(len(boxes))]
+        # class_id = captions.get_class_from_alias(prompt)
+        # class_ids = [class_id for _ in range(len(boxes))]
 
-        return boxes, class_ids
+        return boxes, prompt
 
     def predict_with_prompt(
         self,

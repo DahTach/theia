@@ -2,17 +2,17 @@
   "0": {
     "name": "bitter pack",
     "description": "A pack of bitters (small glass bottles with screw caps)",
-    "aliases": [
-      {
-        "name": "bitter pack",
+    "aliases": {
+      "1": {
+        "name": "diocane pack",
         "metrics": {
           "ap": 0,
           "matches": 0
         }
       }
-    ],
-    "combinations": [
-      {
+    },
+    "combinations": {
+      "1, 2": {
         "aliases": [
           "bitter pack",
           "bitter crate"
@@ -22,47 +22,47 @@
           "matches": 0
         }
       }
-    ]
+    }
   },
   "1": {
     "name": "bottle pack",
     "description": "A pack of plastic bottles",
-    "aliases": [
-      {
+    "aliases": {
+      "1": {
         "name": "bottle pack",
         "metrics": {
           "ap": 0,
           "matches": 0
         }
       }
-    ],
-    "combinations": [
-      {
+    },
+    "combinations": {
+      "1, 2": {
         "aliases": [
           "bottle pack",
-          "plastic pack"
+          "bottle crate"
         ],
         "metrics": {
           "ap": 0,
           "matches": 0
         }
       }
-    ]
+    }
   },
   "2": {
     "name": "box",
     "description": "A cardboard box",
-    "aliases": [
-      {
+    "aliases": {
+      "1": {
         "name": "cardboard",
         "metrics": {
           "ap": 0,
           "matches": 0
         }
       }
-    ],
-    "combinations": [
-      {
+    },
+    "combinations": {
+      "1, 2": {
         "aliases": [
           "cardboard",
           "parcel"
@@ -72,22 +72,22 @@
           "matches": 0
         }
       }
-    ]
+    }
   },
   "3": {
     "name": "can pack",
     "description": "A pack of cans (metal cans)",
-    "aliases": [
-      {
+    "aliases": {
+      "1": {
         "name": "carton cans",
         "metrics": {
           "ap": 0,
           "matches": 0
         }
       }
-    ],
-    "combinations": [
-      {
+    },
+    "combinations": {
+      "1, 2": {
         "aliases": [
           "carton cans",
           "can case"
@@ -97,22 +97,22 @@
           "matches": 0
         }
       }
-    ]
+    }
   },
   "4": {
     "name": "crate",
     "description": "A plastic crate (for big glass bottles)",
-    "aliases": [
-      {
+    "aliases": {
+      "1": {
         "name": "crate",
         "metrics": {
           "ap": 0,
           "matches": 0
         }
       }
-    ],
-    "combinations": [
-      {
+    },
+    "combinations": {
+      "1, 2": {
         "aliases": [
           "crate",
           "bottle crate"
@@ -122,22 +122,22 @@
           "matches": 0
         }
       }
-    ]
+    }
   },
   "5": {
     "name": "keg",
     "description": "A metal keg (for beer), or a metal gas cylinder",
-    "aliases": [
-      {
+    "aliases": {
+      "1": {
         "name": "keg",
         "metrics": {
           "ap": 0,
           "matches": 0
         }
       }
-    ],
-    "combinations": [
-      {
+    },
+    "combinations": {
+      "1, 2": {
         "aliases": [
           "keg",
           "beer keg"
@@ -147,6 +147,6 @@
           "matches": 0
         }
       }
-    ]
+    }
   }
 }

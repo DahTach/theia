@@ -9,6 +9,7 @@ import torchvision.utils as torchutils
 import torchvision.io as io
 import cv2 as cv
 import imagesize
+from transformers.configuration_utils import re
 from guessing import Guesser
 import numpy as np
 
@@ -21,70 +22,48 @@ Steps:
 """
 
 
+def get_confMatr(predictions: List[Tuple], ground_truths: List[Tuple], class_id: int):
+    class_prs = [bbox for _, bbox in predictions]
+    class_grs = [bbox for idx, bbox in ground_truths if idx == class_id]
+
+    true_positives = 0
+    false_positives = 0
+    false_negatives = 0
+
+    print("class_prs", class_prs, "class_grs", class_grs)
+
+    if class_grs and class_prs:
+        # Convert lists of boxes to tensors
+        gr_bbxs = ops.box_convert(
+            boxes=torch.tensor(class_grs),
+            in_fmt="cxcywh",
+            out_fmt="xyxy",
+        )
+
+        pr_bbxs = torch.stack(class_prs, dim=0)
+
+        # Find matching pairs (if any) based on IoU
+        iou_matrix = ops.box_iou(gr_bbxs, pr_bbxs)  # Efficient IoU calculation
+        matched_indices = torch.where(
+            iou_matrix >= 0.5
+        )  # Assuming IoU threshold of 0.5
+
+        true_positives = matched_indices[0].unique().numel()
+
+        false_positives = len(class_prs) - true_positives
+
+        false_negatives = len(class_grs) - true_positives
+    elif not class_prs:
+        false_negatives = 1
+    elif not class_grs:
+        false_positives = 1
+
+    return true_positives, false_positives, false_negatives
+
+
 class Tuning:
-    def __init__(self, model, dataset):
-        self.model = model
-        self.dataset = dataset
-        self.guesser = Guesser()
+    def __init__(self):
         self.benchmarks = []
-
-    def tune(self, clss: int = 0):
-        """
-        Automated search of the best aliases for the grounded model
-        """
-
-        previous_aliases = self.dataset.captions.aliases
-        previous_aliases_names = self.dataset.captions.aliases_name
-
-        description = self.dataset.captions.get_description(clss)
-        for i in range(100):
-            prev_alias = previous_aliases_names[i - 1] if i > 0 else "Box"
-            prev_AP = self.dataset.captions.get_AP(prev_alias) or 0.1
-            aliasAP = self.benchmark(alias)
-            # self.dataset.captions.add_AP(alias, aliasAP)
-            # prev_AP = self.dataset.captions.get_AP(aliases[i - 1]) or 0.1
-            # prev_alias = aliases[i - 1] if i > 0 else "Box"
-            guess = self.guesser.guess(
-                prev_alias=prev_alias,
-                prev_AP=prev_AP,
-                description=description,
-            )
-            print(f"Guess for alias {alias}: {guess}")
-            self.add_alias(alias, aliasAP)
-        break
-
-    def add_alias(self, alias_name, metrics):
-        """
-        Save the results of the guess
-        """
-        self.dataset.captions.add_alias(alias_name, metrics)
-        self.dataset.caption.save()
-
-    def benchmark(self, alias, draw=False) -> float:
-        """
-        Benchmark the grounded model with the default aliases, one alias at a time
-        """
-
-        class_id = self.dataset.captions.get_class_from_alias(alias)
-        metric_dict = {
-            "true_positives": 0,
-            "false_positives": 0,
-            "false_negatives": 0,
-        }
-        threshold_dict = {i: metric_dict for i in range(0, 10)}
-        dataset_metrics = defaultdict(dict, threshold_dict)
-
-        for img_path, ground_truth in zip(
-            self.dataset.images, self.dataset.ground_truths.values()
-        ):
-            predictions = self.model.evalias(img_path, alias, class_id)
-            metrics = self.evalias(predictions, ground_truth, class_id)
-
-            for thr, mets in metrics.items():
-                for name, value in mets.items():
-                    dataset_metrics[thr][name] += value
-
-        return self.aliasAP(dataset_metrics)
 
     def aliasAP(
         self,
@@ -115,52 +94,6 @@ class Tuning:
         AP = self.calc_ap(precisions, recalls)
 
         return AP
-
-    # def classAP(
-    #     self,
-    #     confusion_matrix: Dict,
-    #     iou_thresholds: List[float] = [i for i in range(0, 10)],
-    # ):
-    #     """Calculates mean Average Precision (mAP) from confusion matrix.
-    #
-    #     Args:
-    #         confusion_matrix: Dictionary with the confusion matrix data.
-    #         iou_thresholds: List of IoU thresholds used.
-    #
-    #     Returns:
-    #         float: The calculated mAP.
-    #         dict: A dictionary containing AP for each class.
-    #     """
-    #
-    #     alias_APs = {}  # Store AP for each class
-    #
-    #     for alias_id, thr_metrics in confusion_matrix.items():
-    #         precisions = []
-    #         recalls = []
-    #         for iou_thr in iou_thresholds:  # Iterate over thresholds
-    #             tp = thr_metrics[iou_thr]["true_positives"]
-    #             fp = thr_metrics[iou_thr]["false_positives"]
-    #             fn = thr_metrics[iou_thr]["false_negatives"]
-    #
-    #             if tp + fp > 0:
-    #                 precision = tp / (tp + fp)
-    #             else:
-    #                 precision = 0
-    #
-    #             if tp + fn > 0:
-    #                 recall = tp / (tp + fn)
-    #             else:
-    #                 recall = 0
-    #
-    #             precisions.append(precision)
-    #             recalls.append(recall)
-    #
-    #         # Calculate AP for this alias
-    #         ap = self.calc_ap(precisions, recalls)
-    #
-    #         alias_APs.setdefault(class_id, ap)
-    #
-    #     return alias_APs
 
     def calc_ap(self, precisions, recalls):
         """Calculates Average Precision (AP) using 11-point interpolation.
@@ -240,7 +173,9 @@ class Tuning:
 
         return metrics
 
-    def compare(self, predictions: List[Tuple], ground_truths: List[Tuple]):
+    def compare(
+        self, predictions: List[Tuple], ground_truths: List[Tuple], class_ids: List[int]
+    ):
         """
         Compare the ground truth and the predictions
 
@@ -254,44 +189,6 @@ class Tuning:
         """
 
         metrics = {}
-        """ example:
-        metrics = {
-        0 (class name): {
-            1(iou threshold): {
-                "true_positives": 0,
-                "false_positives": 0,
-                "false_negatives": 0,
-            },
-            2(iou threshold): {
-                "true_positives": 0,
-                "false_positives": 0,
-                "false_negatives": 0,
-            },
-            3(iou threshold): {
-                "true_positives": 0,
-                "false_positives": 0,
-                "false_negatives": 0,
-            },
-        },
-        1 (class name): {
-            1(iou threshold): {
-                "true_positives": 0,
-                "false_positives": 0,
-                "false_negatives": 0,
-            },
-            2(iou threshold): {
-                "true_positives": 0,
-                "false_positives": 0,
-                "false_negatives": 0,
-            },
-            3(iou threshold): {
-                "true_positives": 0,
-                "false_positives": 0,
-                "false_negatives": 0,
-            },
-        },
-        }
-        """
         matched_boxes = {}
 
         # Organize predictions and ground truths by class for efficiency
@@ -304,7 +201,7 @@ class Tuning:
             ground_truths_by_class[class_id].append(bbox)
 
         # Convert to tensors once per class for faster calculations
-        for idx in self.dataset.classes.keys():
+        for idx in class_ids:
             # Check for empty lists
 
             class_predictions = predictions_by_class.get(idx, [])
@@ -368,7 +265,7 @@ class Tuning:
 
         return metrics, matched_boxes
 
-    def draw(self, matched_boxes, image_path, metrics):
+    def draw(self, matched_boxes, image_path, metrics, classes: List[str]):
         """
         Draw the matched boxes on the images
         """
@@ -413,7 +310,7 @@ class Tuning:
             image = torchutils.draw_bounding_boxes(
                 image,
                 preds,
-                labels=[self.dataset.classes[class_id] for _ in range(len(preds))],
+                labels=[classes[class_id] for _ in range(len(preds))],
                 colors=colors[class_id],
                 width=3,
                 font_size=3,
@@ -424,7 +321,7 @@ class Tuning:
         image = cv.cvtColor(image, cv.COLOR_RGB2BGR)
         # draw the metrics on the bottom left corner of the image
         for idx, metric in metrics.items():
-            class_name = self.dataset.classes[idx]
+            class_name = classes[idx]
             tp = metric.get("true_positives", 0)
             fp = metric.get("false_positives", 0)
             fn = metric.get("false_negatives", 0)
@@ -449,35 +346,6 @@ def main():
     from dataset import Dataset
 
     utils.filter_warnings()
-
-    # 1. Load the dataset
-    dataset = Dataset(
-        "/Users/francescotacinelli/Developer/datasets/pallets_sorted/test/"
-    )
-    cap_ont = dataset.captions.captions_ontology
-
-    # 2. Load the model
-    try:
-        model = Dino(ontology=CaptionOntology(cap_ont))
-    except Exception as e:
-        raise e
-
-    # 3. Benchmark the grounded model with the default aliases
-    tuning = Tuning(model, dataset)
-    tuning.tune()
-
-    # # 4. Save the results
-    # benchmark_path = (
-    #     "/Users/francescotacinelli/Developer/theia/benchmarks/captions_benchmark.json"
-    # )
-    # results = {
-    #     "captions": captions,
-    #     "benchmark": captions_benchmark,
-    # }
-    # with open(benchmark_path, "w") as f:
-    #     json.dump(results, f)
-
-    # 6. Tune the model
 
 
 if __name__ == "__main__":

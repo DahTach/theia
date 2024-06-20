@@ -4,6 +4,19 @@ import warnings
 import cv2 as cv
 import numpy as np
 import pathlib
+import torch
+
+
+def get_device():
+    if torch.cuda.is_available():
+        print("using cuda")
+        return "cuda"
+    if torch.backends.mps.is_available() and torch.backends.mps.is_built():
+        print("using mps")
+        return "mps"
+    else:
+        print("using cpu")
+        return "cpu"
 
 
 def get_captions(captions):
@@ -83,3 +96,14 @@ def save_image(image, path_name):
     result_dir = path.parent.parent / f"{path.parent.name}_results"
     result_path = result_dir / path.name
     cv.imwrite(str(result_path.resolve()), image)
+
+
+def filter_phi_warnings():
+    warnings.filterwarnings(
+        "ignore",
+        message="`do_sample` is set to `False`",
+    )
+    warnings.filterwarnings(
+        "ignore",
+        message="You are not running the flash-attention implementation",
+    )
